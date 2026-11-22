@@ -1,0 +1,13 @@
+# Course environment lock governs everything except the two pinned packages below.
+# Task 2 Part C (cache editing) REQUIRES exactly these two versions; Task 1 was developed against them too.
+transformers==4.57.1
+huggingface_hub==0.36.2
+torch>=2.3
+numpy
+scipy
+pandas
+matplotlib
+datasets        # only used to resolve HellaSwag ids if the manifest stores ids only
+safetensors
+tqdm
+pytest

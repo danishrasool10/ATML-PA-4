@@ -1,0 +1,18 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B",
+  "revision": null,
+  "dtype": "float16",
+  "attn_implementation": "sdpa",
+  "seed": 6304,
+  "window_len": 512,
+  "group_size": 128,
+  "device": "cuda",
+  "manifests": {
+    "calibration": "data/manifests/calibration_c4_128x512.json",
+    "development": "data/manifests/development_c4_32x512.json",
+    "wikitext2_test": "data/manifests/wikitext2_test_windows.json",
+    "c4_validation": "data/manifests/c4_validation_windows.json",
+    "hellaswag": "data/manifests/hellaswag_val_2000.json"
+  },
+  "results_dir": "results/task1"
+}

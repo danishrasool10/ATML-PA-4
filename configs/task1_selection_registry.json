@@ -1,0 +1,29 @@
+{
+  "_comment": "PRE-REGISTERED candidate designs and selection criterion for P3 and Q3. Fixed before any held-out (WikiText-2 / C4-validation / HellaSwag) result is produced. Selection uses ONLY the 32-sequence C4 development manifest. The sha256 of each block is stored in the selection lock; changing this file after selection invalidates the lock and the test-time stages refuse to run. Unsuccessful designs are retained in results/task1/selection/*.json.",
+  "p3": {
+    "unit": "individual projection (7 x n_layers units)",
+    "ranking_rule": "Wanda (fixed)",
+    "targets": [0.5, 0.75],
+    "criterion": "mean_dev_nll_over_targets",
+    "candidates": [
+      {"name": "owl_g0.5", "design": "owl", "rule": "power_law", "gamma": 0.5},
+      {"name": "owl_g1", "design": "owl", "rule": "power_law", "gamma": 1.0},
+      {"name": "owl_g2", "design": "owl", "rule": "power_law", "gamma": 2.0},
+      {"name": "local_rel_mckp", "design": "local_rel", "rule": "mckp"},
+      {"name": "local_abs_mckp", "design": "local_abs", "rule": "mckp"},
+      {"name": "taylor_mckp", "design": "taylor", "rule": "mckp"}
+    ]
+  },
+  "q3": {
+    "unit": "individual projection (7 x n_layers units)",
+    "quantizer": "Q2 AWQ-style (fixed); only bit widths change",
+    "bits": [2, 3, 4, 8],
+    "budgets": ["int4", "int3"],
+    "criterion": "mean_dev_nll_over_budgets",
+    "candidates": [
+      {"name": "local_rel_mckp", "design": "local_rel", "rule": "mckp"},
+      {"name": "local_abs_mckp", "design": "local_abs", "rule": "mckp"},
+      {"name": "hawq_fisher_mckp", "design": "hawq", "rule": "mckp"}
+    ]
+  }
+}
