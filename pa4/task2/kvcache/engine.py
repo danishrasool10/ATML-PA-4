@@ -49,6 +49,12 @@ class LayerCache:
     def clone(self):
         return LayerCache(self.K.clone(), self.V.clone(), self.spec, self.n_quant, self.quantize_new)
 
+    def truncate(self, n: int):
+        assert 0 <= n <= self.n
+        if n < self.n:
+            self.K, self.V = self.K[..., :n, :], self.V[..., :n, :]
+            self.n_quant = min(self.n_quant, n)
+
 
 class KVCache:
     def __init__(self, layers: list[LayerCache], meta: dict | None = None):
@@ -60,6 +66,10 @@ class KVCache:
 
     def clone(self):
         return KVCache([l.clone() for l in self.layers], dict(self.meta))
+
+    def truncate(self, n: int):
+        for l in self.layers:
+            l.truncate(n)
 
     def expand_batch(self, B: int):
         return KVCache([LayerCache(l.K.expand(B, -1, -1, -1).contiguous(), l.V.expand(B, -1, -1, -1).contiguous(), l.spec, l.n_quant,
