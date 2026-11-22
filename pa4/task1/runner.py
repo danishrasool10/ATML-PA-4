@@ -36,11 +36,12 @@ def default_config() -> dict:
     return {
         "model": "Qwen/Qwen2.5-1.5B", "revision": None, "dtype": "float16", "attn_implementation": "sdpa", "seed": 6304,
         "window_len": 512, "group_size": GROUP_SIZE, "device": "cuda",
-        "manifests": {"calibration": "data/manifests/calibration_c4_128x512.json",
-                      "development": "data/manifests/development_c4_32x512.json",
-                      "wikitext2_test": "data/manifests/wikitext2_test_windows.json",
-                      "c4_validation": "data/manifests/c4_validation_windows.json",
-                      "hellaswag": "data/manifests/hellaswag_val_2000.json"},
+        "data_root": "../atml-pa4-datasets",   # checkout of the course data repo after `python scripts/setup_data.py --public`
+        "manifests": {"calibration": "data/public_locked/c4_calibration_locked.jsonl.gz",
+                      "development": "data/public_locked/c4_development_locked.jsonl.gz",
+                      "wikitext2_test": "data/public_locked/wikitext2_test_windows_locked.jsonl.gz",
+                      "c4_validation": "data/public_locked/c4_validation_windows_locked.jsonl.gz",
+                      "hellaswag": "data/public_locked/hellaswag_val_locked.jsonl.gz"},
         "expected": {"calibration": 128, "development": 32, "hellaswag": 2000, "ppl_scored_tokens": 50000},
         "eval_batch_size": 4, "hs_batch_size": 8, "calib_batch_size": 8,
         "profile": {"warmup": 2, "reps": 5, "prefill_lengths": [512, 2048], "decode_prompt_len": 512, "decode_new_tokens": 64},
@@ -77,7 +78,9 @@ class Task1Runner:
 
     # ------------------------------------------------------------------ data
     def _load_data(self):
-        c, m, ex = self.cfg, self.cfg["manifests"], self.cfg["expected"]
+        c, ex = self.cfg, self.cfg["expected"]
+        root = Path(c.get("data_root") or ".")
+        m = {k: (v if Path(v).is_absolute() else str(root / v)) for k, v in c["manifests"].items()}
         W = c["window_len"]
         self.calib = load_token_sequences(m["calibration"], self.tok, name="calibration", expected_n=ex.get("calibration"), seq_len=W)
         self.dev = load_token_sequences(m["development"], self.tok, name="development", expected_n=ex.get("development"), seq_len=W)
