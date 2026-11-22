@@ -113,3 +113,52 @@ def make_synthetic_manifests(out_dir: str | Path, *, seed: int = 6304, seq_len: 
     paths["hellaswag"] = out / "hellaswag.json"
     json.dump({"items": hs}, open(paths["hellaswag"], "w"))
     return {k: str(v) for k, v in paths.items()}
+
+
+class ByteChatTokenizer(ByteTokenizer):
+    """Byte tokenizer with the bits of the HF API Part C uses: chat template, offsets mapping, decode."""
+
+    eos_token_id = None
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        s = "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages)
+        return s + ("<|im_start|>assistant\n" if add_generation_prompt else "")
+
+    def __call__(self, text, add_special_tokens=False, return_offsets_mapping=False):
+        raw = text.encode("utf-8")
+        ids = [b + BYTE_OFFSET for b in raw]
+        # one token per byte; offsets are in *characters*, so map each byte to the character it belongs to
+        offs, ci = [], 0
+        for ch in text:
+            n = len(ch.encode("utf-8"))
+            offs += [(ci, ci + 1)] * n
+            ci += 1
+        out = {"input_ids": ids}
+        if return_offsets_mapping:
+            out["offset_mapping"] = offs
+        return out
+
+    def decode(self, ids, **kw):
+        return bytes(max(i - BYTE_OFFSET, 0) for i in ids if i >= BYTE_OFFSET).decode("utf-8", errors="replace")
+
+
+def make_synthetic_kv_cases(n_per_cell: int = 2, seed: int = 6304, n_lines: int = 40) -> list[dict]:
+    """Records in the staff ``kv_retrieval_cases`` layout (tiny: ~1.5-2.5k bytes)."""
+    rng = random.Random(seed)
+    out = []
+    for target in (2048, 4096):
+        for pos in ("start", "middle", "end"):
+            for dist in (0, 2, 8):
+                for c in range(n_per_cell):
+                    cid = f"KV-{target}-{pos}-{dist}-{c:02d}"
+                    code = f"{rng.randrange(10000, 99999)}"
+                    lines = [f"Ledger line {i:04d}: {rng.choice(_WORDS)} shipped {rng.randrange(100, 999)} parcels." for i in range(n_lines * (1 + target // 4096))]
+                    rec_txt = f"IMPORTANT RECORD: access code for CASE-{cid} is {code}."
+                    at = {"start": 1, "middle": len(lines) // 2, "end": len(lines) - 1}[pos]
+                    pre = "\n".join(lines[:at]) + ("\n" if at else "")
+                    start = len(pre)
+                    text = pre + rec_txt + "\n" + "\n".join(lines[at:]) + f"\nQUESTION_BEGIN\nWhat is the access code for CASE-{cid}? Reply with only five digits."
+                    out.append({"id": cid, "user_text": text, "code": code, "position": pos, "distractors": dist, "target_tokens": target,
+                                "seed": rng.randrange(2 ** 32), "evidence_text": rec_txt, "evidence_char_start": start,
+                                "evidence_char_end": start + len(rec_txt)})
+    return out
