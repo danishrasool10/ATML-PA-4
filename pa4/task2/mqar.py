@@ -88,6 +88,8 @@ def _frozen(split: str, data_root) -> dict:
             for r in (rs[0], rs[len(rs) // 2], rs[-1]):          # spot-check the frozen file against the generator
                 assert make_example(split, K, regime, int(r["id"].split("-")[-1])) == r
     else:
+        import warnings
+        warnings.warn(f"frozen MQAR file {f} not found: regenerating the {split} split with the (deterministic, identical) staff generator")
         for K in KS:
             for regime in REGIMES:
                 groups[(K, regime)] = [make_example(split, K, regime, i) for i in range(n)]

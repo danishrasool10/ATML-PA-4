@@ -104,6 +104,13 @@ resumable (JSONL appends). Sweeps refuse to run until `results/task3/validation.
 * **Banks.** Staff `teacher` / `original_draft` banks are used when `prefix_banks_locked.jsonl.gz` exists (else regenerated with the same position rule);
   `exact_spec_original_gamma4` and one own-policy bank per trained student are generated here and frozen; all drafts are evaluated on all banks (cross-evaluation).
 
+## Running everything on Kaggle (2 x T4)
+`notebooks/kaggle_2xT4.ipynb` clones both repos, installs the pinned dependencies, logs into Hugging Face from the Kaggle secret `HF_TOKEN`, builds the locked data
+(`setup_data.py --public` and `--prefix-banks`) and then calls `scripts/kaggle_runner.py`, a resumable scheduler with one lane per GPU: Task 1, the Task 3
+validation gate -> four distillations -> banks, Part C and MQAR training run concurrently; the timing-critical benchmarks (Part A, MQAR inference sweep, packed-KV
+benchmark, speculative decoding / throughput) run afterwards on an otherwise idle machine, then the analysis jobs. `--deadline-hours` stops cleanly before Kaggle's
+12 h limit and the next session resumes (results restored through `RESTORE_DIR`). `python scripts/kaggle_runner.py --smoke --gpus ""` runs the whole suite on tiny models.
+
 ## Open interpretation points (flagged for the report)
 1. MQAR "K classification logits": default is 64-way value classification at the query position (`stored_k` variant available).
 2. B3 intervention: delta rule (+ additive L2 control), chosen by the dev rule written in `mqar_train.py`.

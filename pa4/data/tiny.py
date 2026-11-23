@@ -139,7 +139,7 @@ class ByteChatTokenizer(ByteTokenizer):
         return out
 
     def decode(self, ids, **kw):
-        return bytes(max(i - BYTE_OFFSET, 0) for i in ids if i >= BYTE_OFFSET).decode("utf-8", errors="replace")
+        return bytes(max(i - BYTE_OFFSET, 0) for i in ids if BYTE_OFFSET <= i < BYTE_OFFSET + 256).decode("utf-8", errors="replace")
 
 
 def make_synthetic_kv_cases(n_per_cell: int = 2, seed: int = 6304, n_lines: int = 40) -> list[dict]:

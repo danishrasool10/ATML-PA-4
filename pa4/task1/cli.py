@@ -22,10 +22,10 @@ STAGES = ["baseline", "p1", "p2", "structured", "sensitivity", "select_p3", "p3"
 
 
 def build_smoke(out_dir: str | None):
-    tmp = Path(out_dir or tempfile.mkdtemp(prefix="pa4_smoke_"))
+    tmp = Path(out_dir or tempfile.mkdtemp(prefix="pa4_smoke_")).resolve()
     paths = make_synthetic_manifests(tmp / "manifests", seq_len=64)
     cfg = default_config()
-    cfg.update(device="cpu", dtype="float32", window_len=64, results_dir=str(tmp / "results"), calib_batch_size=4, eval_batch_size=4,
+    cfg.update(device="cpu", dtype="float32", window_len=64, data_root=None, results_dir=str(tmp / "results"), calib_batch_size=4, eval_batch_size=4,
                hs_batch_size=8, manifests=paths,
                expected={"calibration": None, "development": None, "hellaswag": None, "ppl_scored_tokens": None},
                profile={"warmup": 1, "reps": 2, "prefill_lengths": [64, 128], "decode_prompt_len": 64, "decode_new_tokens": 4},
