@@ -59,6 +59,23 @@ def test_rollback_and_split_prefill(models):
         assert r["passed"], r
 
 
+def test_rollback_check_fp16_two_level_and_detects_bug():
+    from pa4common.tiny import make_tiny_model
+    m = make_tiny_model(seed=101, layers=3, hidden=128, heads=4, kv_heads=2, dtype=torch.float16)
+    r = check_rollback_and_split_prefill(m, 10, 250, "cpu")
+    assert r["passed"] and r["logic_passed"] and r["fp16_passed"], r
+    assert r["fp32_logic_max_abs_rollback"] < 2e-3
+    # a genuine rollback bug (truncate keeps one stale token) must be caught by the FP32 logic gate
+    from pa4t3 import lm as lm_mod
+    orig = lm_mod.CachedLM.truncate
+    lm_mod.CachedLM.truncate = lambda self, n: orig(self, min(n + 1, len(self.tokens)))
+    try:
+        with pytest.raises(AssertionError):
+            check_rollback_and_split_prefill(m, 10, 250, "cpu")        # (length assertion fires first)
+    finally:
+        lm_mod.CachedLM.truncate = orig
+
+
 def test_speculative_cache_consistency_and_identical_models(models):
     t, d = models
     r = check_speculative_cache(t, d, [5, 17, 29, 41, 53], "cpu")
@@ -280,3 +297,26 @@ def test_pipeline_smoke_end_to_end(tmp_path):
 
 
 import json  # noqa: E402
+
+
+def test_generate_generator_compat_shim_is_deterministic_and_matches_global_seed():
+    from pa4t3 import data_compat
+    data_compat.install()
+    from transformers import GenerationMixin
+    assert GenerationMixin.generate._pa4_generator_shim
+    m = make_tiny_model(seed=101, layers=2, hidden=64, heads=2, kv_heads=1)
+    ids = torch.tensor([[5, 17, 29]])
+    kw = dict(max_new_tokens=12, do_sample=True, temperature=1.0, top_p=1.0, top_k=0, pad_token_id=2)
+
+    def run(seed):
+        g = torch.Generator().manual_seed(seed)
+        return m.generate(ids, generator=g, **kw)[0].tolist(), g.get_state()
+
+    a, ga = run(7)
+    b, _ = run(7)
+    c, _ = run(8)
+    assert a == b and a != c                                    # seeded per call, deterministic
+    torch.manual_seed(7)
+    assert a == GenerationMixin.generate._pa4_orig(m, ids, **kw)[0].tolist()   # == plain global-seeded sampling
+    g = torch.Generator().manual_seed(7)
+    assert not torch.equal(g.get_state(), ga)                   # generator state advanced (stream continues across calls)

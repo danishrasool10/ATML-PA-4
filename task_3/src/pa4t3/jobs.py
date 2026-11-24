@@ -12,7 +12,7 @@ def full_jobs(data: str, out: str = "results") -> list[Job]:
     J = [Job("tests", "python -m pytest tests -q", gpu=False, fatal=False, note="CPU unit tests"),
          Job("data_public", f"cd {data} && python scripts/setup_data.py --public", gpu=False, note="GSM8K locked files (+ the Task 1 corpora)"),
          Job("data_check", f"cd {data} && python scripts/check_setup.py", deps=["data_public"], gpu=False, fatal=False),
-         Job("data_prefix_banks", f"cd {data} && python scripts/setup_data.py --prefix-banks", note="staff teacher / original-draft prefix banks (GPU)"),
+         Job("data_prefix_banks", f"cd {data} && python -m pa4t3.data_compat --prefix-banks", note="staff teacher / original-draft prefix banks (GPU; staff script via the generator= compat launcher)"),
          Job("validate", f"{P} validate {d}", deps=["data_public"], note="Step 1 gate: chi-square 100k, rollback, merged-vs-unmerged, tokenizers")]
     for m in ("off_policy", "on_policy"):
         for s in (6304, 6305):

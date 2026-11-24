@@ -124,6 +124,9 @@ def stage_validate(c: Ctx):
     lo, hi = (10, 250) if c.smoke else (1000, 20000)
     res = run_all(t, d0, c._mk_d, c.tok, tok_d, c.device, c.out, vocab_range=(lo, hi), n_toy=c.a.toy_n)
     print(json.dumps({k: (v["passed"] if isinstance(v, dict) else v) for k, v in res.items()}, indent=1))
+    for k, v in res.items():                               # numeric diagnostics, so a failed gate can be diagnosed from the log alone
+        if isinstance(v, dict) and not v.get("passed"):
+            print(f"FAILED CHECK {k}: {json.dumps(v, default=str)}")
     if not res["passed"]:
         raise SystemExit("validation FAILED")
 

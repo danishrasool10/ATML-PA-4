@@ -28,35 +28,82 @@ def _tol(dtype):
     return (2e-3, 1e-4) if dtype == torch.float32 else (0.15, 5e-2)       # (logit max-abs tolerance, reserved)
 
 
+def _maxabs(a: torch.Tensor, b: torch.Tensor) -> float:
+    """max |a-b|; +inf if either side contains NaN/inf (python's ``max`` would silently swallow a NaN)."""
+    d = (a.float() - b.float()).abs()
+    return float(d.max()) if bool(torch.isfinite(d).all()) else float("inf")
+
+
+def _trial(lm: CachedLM, ids: list[int], junk: list[int], cuts: list[int], k: int) -> tuple[float, float, torch.Tensor]:
+    """One split-prefill + one rollback trial; returns (split error, rollback error, fresh reference logits)."""
+    ref = lm.full_logits(ids)
+    lm.reset()                                                              # (3) split prefill: random chunking
+    rows, prev = [], 0
+    for c in cuts + [len(ids)]:
+        if c > prev:
+            rows.append(lm.feed(ids[prev:c]))
+            prev = c
+    e_split = _maxabs(torch.cat(rows), ref)
+    lm.reset()                                                              # (2) rollback: feed junk, truncate, re-feed truth
+    lm.feed(ids[:25])
+    lm.feed(junk)
+    lm.truncate(k)
+    assert len(lm) == k and lm.cache.n == k
+    rows = lm.feed(ids[k:])
+    e_roll = _maxabs(rows, ref[k:])
+    assert lm.tokens == ids
+    return e_split, e_roll, ref
+
+
 @torch.no_grad()
 def check_rollback_and_split_prefill(model, vocab_lo: int, vocab_hi: int, device, seed: int = 6304, n_trials: int = 6) -> dict:
+    """KV-cache rollback / split-prefill equivalence with a *two-level* criterion.
+
+    * Logic (hard gate): on an FP32 copy of the model the cached logits must equal a fresh forward to ``2e-3`` -- any
+      real indexing / position / rollback bug shows up as O(1) logit errors there.
+    * FP16 (the dtype the experiments run in): chunked vs one-shot attention are different kernels, so they round
+      differently. A fixed absolute logit bound is not meaningful (Qwen logits are O(10-30) and random rare-token inputs
+      excite outlier channels), so the deployed-precision error is compared with the model's own FP16 rounding floor
+      ``|fresh FP16 forward - FP32 forward|`` on the same inputs: pass iff max error <= max(0.15, 3 x floor) *and* finite.
+    """
+    dt = next(model.parameters()).dtype
     lm = CachedLM(model)
     g = torch.Generator().manual_seed(seed)
-    tol = _tol(next(model.parameters()).dtype)[0]
-    worst_roll, worst_split = 0.0, 0.0
-    for t in range(n_trials):
+    trials = []
+    for _ in range(n_trials):
         ids = torch.randint(vocab_lo, vocab_hi, (40,), generator=g).tolist()
-        ref = lm.full_logits(ids)
-        # (3) split prefill: random chunking
-        lm.reset()
         cuts = sorted(torch.randint(1, len(ids), (3,), generator=g).tolist())
-        rows, prev = [], 0
-        for c in cuts + [len(ids)]:
-            if c > prev:
-                rows.append(lm.feed(ids[prev:c]))
-                prev = c
-        worst_split = max(worst_split, float((torch.cat(rows) - ref).abs().max()))
-        # (2) rollback: feed junk, truncate to a random point, re-feed the true continuation
-        lm.reset()
-        lm.feed(ids[:25])
-        lm.feed(torch.randint(vocab_lo, vocab_hi, (7,), generator=g).tolist())
+        junk = torch.randint(vocab_lo, vocab_hi, (7,), generator=g).tolist()
         k = int(torch.randint(5, 25, (1,), generator=g))
-        lm.truncate(k)
-        assert len(lm) == k and lm.cache.n == k
-        rows = lm.feed(ids[k:])
-        worst_roll = max(worst_roll, float((rows - ref[k:]).abs().max()))
-        assert lm.tokens == ids
-    return {"max_abs_split_prefill": worst_split, "max_abs_rollback": worst_roll, "tol": tol, "passed": worst_split < tol and worst_roll < tol}
+        trials.append((ids, junk, cuts, k))
+    out = {"dtype": str(dt)}
+    if dt == torch.float32:
+        rows = [_trial(lm, *t)[:2] for t in trials]
+        tol = _tol(dt)[0]
+        ws, wr = max(r[0] for r in rows), max(r[1] for r in rows)
+        out.update(max_abs_split_prefill=ws, max_abs_rollback=wr, tol=tol, passed=bool(ws < tol and wr < tol))
+        return out
+    # --- FP16 path: deployed-precision errors vs. rounding floor, plus the exact logic check on an FP32 copy
+    rows16 = [_trial(lm, *t) for t in trials]
+    ws16, wr16 = max(r[0] for r in rows16), max(r[1] for r in rows16)
+    m32 = copy.deepcopy(model).float()
+    lm32 = CachedLM(m32)
+    rows32, floor = [], 0.0
+    for t, r16 in zip(trials, rows16):
+        r32 = _trial(lm32, *t)
+        rows32.append(r32[:2])
+        floor = max(floor, _maxabs(r16[2], r32[2]))
+    del lm32, m32
+    if str(device).startswith("cuda") or getattr(device, "type", "") == "cuda":
+        torch.cuda.empty_cache()
+    ws32, wr32 = max(r[0] for r in rows32), max(r[1] for r in rows32)
+    tol32, tol16 = _tol(torch.float32)[0], max(_tol(dt)[0], 3.0 * floor)
+    logic_ok = ws32 < tol32 and wr32 < tol32
+    fp16_ok = ws16 < tol16 and wr16 < tol16
+    out.update(max_abs_split_prefill=ws16, max_abs_rollback=wr16, tol=tol16, fp16_rounding_floor=floor,
+               fp32_logic_max_abs_split_prefill=ws32, fp32_logic_max_abs_rollback=wr32, fp32_logic_tol=tol32,
+               logic_passed=bool(logic_ok), fp16_passed=bool(fp16_ok), passed=bool(logic_ok and fp16_ok))
+    return out
 
 
 @torch.no_grad()
